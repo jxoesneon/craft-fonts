@@ -1,2 +1,9 @@
-*~
-/target
+target/
+Cargo.lock
+**/*.rs.bk
+*.swp
+.DS_Store
+
+# Demonstration artifacts
+/brag/
+brag/
