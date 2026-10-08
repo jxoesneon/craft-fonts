@@ -2,49 +2,60 @@ name: Multi-Platform Release Packaging
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   package-linux:
-    name: Linux (${{ matrix.arch }})
+    name: Linux (${{ matrix.target.arch }} / ${{ matrix.target.format }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            target: x86_64-unknown-linux-gnu
-          - arch: aarch64
-            target: aarch64-unknown-linux-gnu
+        target:
+          - { arch: x86_64, triple: x86_64-unknown-linux-gnu, format: deb }
+          - { arch: x86_64, triple: x86_64-unknown-linux-gnu, format: rpm }
+          - { arch: aarch64, triple: aarch64-unknown-linux-gnu, format: deb }
+          - { arch: aarch64, triple: aarch64-unknown-linux-gnu, format: rpm }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-      - name: Install cross dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu || true
+          targets: ${{ matrix.target.triple }}
       - uses: taiki-e/install-action@cargo-deb
       - uses: taiki-e/install-action@cargo-generate-rpm
-      - name: Build and Package .deb, .rpm, .flatpak
+      - name: Build and Package
         run: |
-          mkdir -p dist
-          cargo build --release --workspace
-          echo "Packaging .deb and .rpm for ${{ matrix.arch }}"
-          touch dist/craft-fonts-${{ matrix.arch }}.deb
-          touch dist/craft-fonts-${{ matrix.arch }}.rpm
-          echo "Packaging Flatpak bundle for ${{ matrix.arch }}"
-          touch dist/craft-fonts-${{ matrix.arch }}.flatpak
+          if [ "${{ matrix.target.format }}" = "deb" ]; then
+            cargo deb --target ${{ matrix.target.triple }}
+          else
+            cargo generate-rpm --target ${{ matrix.target.triple }}
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}-packages
-          path: dist/*
+          name: linux-${{ matrix.target.arch }}-${{ matrix.target.format }}
+          path: target/${{ matrix.target.triple }}/*/*.${{ matrix.target.format }}
+
+  package-flatpak:
+    name: Linux Flatpak (x86_64 & aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v1
+        with:
+          bundle: true
+          manifest-path: packaging/flatpak/org.artcraft.app.yml
+          run-tests: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-flatpak
+          path: '*.flatpak'
 
   package-macos:
     name: macOS (Universal .dmg)
@@ -54,39 +65,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
-      - name: Build macOS binaries and create .dmg
+      - uses: taiki-e/install-action@cargo-bundle
+      - name: Compile and Lipoo Universal Binary
         run: |
-          mkdir -p dist
-          cargo build --release --workspace
-          hdiutil create -volname "Craft Fonts" -srcfolder dist -ov -format UDZO dist/craft-fonts-macos-universal.dmg
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create             target/aarch64-apple-darwin/release/app             target/x86_64-apple-darwin/release/app             -output target/universal-apple-darwin/release/app
+      - name: Create DMG
+        run: hdiutil create -volname "ArtCraft App" -srcfolder target/universal-apple-darwin/release -ov -format UDZO app.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal-dmg
-          path: dist/*.dmg
+          path: app.dmg
 
   package-windows:
-    name: Windows (${{ matrix.arch }})
+    name: Windows (${{ matrix.target.arch }})
     runs-on: windows-latest
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - arch: x64
-            target: x86_64-pc-windows-msvc
-          - arch: arm64
-            target: aarch64-pc-windows-msvc
+        target:
+          - { arch: x64, triple: x86_64-pc-windows-msvc }
+          - { arch: arm64, triple: aarch64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-      - name: Build Windows binaries and packages
+          targets: ${{ matrix.target.triple }}
+      - uses: taiki-e/install-action@cargo-wix
+      - name: Compile and Build Windows MSI
         run: |
-          mkdir dist
-          cargo build --release --workspace
-          New-Item -Path "dist/craft-fonts-${{ matrix.arch }}.exe" -ItemType File
-          New-Item -Path "dist/craft-fonts-${{ matrix.arch }}.msi" -ItemType File
+          cargo build --release --target ${{ matrix.target.triple }}
+          cargo wix --target ${{ matrix.target.triple }} --nocapture
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch }}-packages
-          path: dist/*
+          name: windows-${{ matrix.target.arch }}-installer
+          path: target/wix/*.msi
