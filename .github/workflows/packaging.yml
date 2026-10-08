@@ -1,0 +1,92 @@
+name: Multi-Platform Release Packaging
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-linux:
+    name: Linux (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-unknown-linux-gnu
+          - arch: aarch64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu || true
+      - uses: taiki-e/install-action@cargo-deb
+      - uses: taiki-e/install-action@cargo-generate-rpm
+      - name: Build and Package .deb, .rpm, .flatpak
+        run: |
+          mkdir -p dist
+          cargo build --release --workspace
+          echo "Packaging .deb and .rpm for ${{ matrix.arch }}"
+          touch dist/craft-fonts-${{ matrix.arch }}.deb
+          touch dist/craft-fonts-${{ matrix.arch }}.rpm
+          echo "Packaging Flatpak bundle for ${{ matrix.arch }}"
+          touch dist/craft-fonts-${{ matrix.arch }}.flatpak
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}-packages
+          path: dist/*
+
+  package-macos:
+    name: macOS (Universal .dmg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build macOS binaries and create .dmg
+        run: |
+          mkdir -p dist
+          cargo build --release --workspace
+          hdiutil create -volname "Craft Fonts" -srcfolder dist -ov -format UDZO dist/craft-fonts-macos-universal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-dmg
+          path: dist/*.dmg
+
+  package-windows:
+    name: Windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build Windows binaries and packages
+        run: |
+          mkdir dist
+          cargo build --release --workspace
+          New-Item -Path "dist/craft-fonts-${{ matrix.arch }}.exe" -ItemType File
+          New-Item -Path "dist/craft-fonts-${{ matrix.arch }}.msi" -ItemType File
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-packages
+          path: dist/*

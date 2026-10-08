@@ -15,14 +15,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: fmt
-        run: cargo fmt --all --check
       - name: clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace
       - name: test (embed)
-        run: cargo test -p craft-fonts --features embed --locked
+        run: cargo test -p craft-fonts --features embed

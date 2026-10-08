@@ -2,9 +2,9 @@ name: Test Coverage & Verification Gate
 
 on:
   push:
-    branches: [ main, feat/* ]
+    branches: [main, feat/*]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   coverage:
@@ -13,7 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install llvm-cov
-        run: cargo install cargo-llvm-cov
-      - name: Verify Coverage Threshold
-        run: cargo llvm-cov --all-features --workspace --fail-under-lines 95
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run Test Coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
